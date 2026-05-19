@@ -1,0 +1,22 @@
+# Large local assets
+model_output/
+log/
+data/event/
+data/series/
+*.zip
+Llama-3.1-8B/
+llama3-2-3B/
+moment_model/
+baselines/moment/
+Kronos-base/
+Kronos-Tokenizer-base/
+
+# Python/runtime
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Local editor
+.idea/
+.cursor/
