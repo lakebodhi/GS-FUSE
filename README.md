@@ -1,17 +1,149 @@
 # GS-FUSE
 
-GS-FUSE is a multimodal financial forecasting project that fuses text events and time-series windows through a shared cross-attention / gating stack to predict future market trajectories.
+GS-FUSE is a multimodal financial forecasting framework that fuses macro-financial event text and time-series windows through cross-modal attention, gating, and multi-granularity alignment.
 
-The public project is centered on one model class (`GSFuse`), one training entrypoint (`train.py`), and a small set of checkpoint/testing utilities.
+The public codebase centers on one model class (`GSFuse`), one training entrypoint (`train.py`), and one pretrained checkpoint evaluation utility (`test_pretrained_model.py`).
+
+## Downloads
+
+Download the external assets before running evaluation or training:
+
+- Trained GS-FUSE model checkpoints: [Alipan](https://www.alipan.com/s/NBvf1wWskh4)
+- GS-FUSE dataset: [Google Drive](https://drive.google.com/file/d/1fH436rkOHVYIG2JPROrFTXXemnY7JPdB/view?usp=sharing)
+
+The dataset combines CAMEF event data with FNDPID financial time-series data. After extraction, place or symlink the files so the project can find:
+
+```text
+data/event/     # event text files by type/date
+data/series/    # per-asset time-series CSV files
+```
+
+Large datasets, model weights, checkpoints, outputs, and logs are intentionally ignored by git.
+
+## Environment
+
+Create the unified conda environment:
+
+```bash
+conda env create -f environment.yml
+conda activate gs-fuse
+```
+
+If the environment already exists:
+
+```bash
+conda env update -n gs-fuse -f environment.yml --prune
+conda activate gs-fuse
+```
+
+`environment.yml` supports MOMENT and Kronos time-series encoders, plus LLaMA-family and Phi-family text encoders.
+
+## Test Trained Models
+
+Download a trained checkpoint from the Alipan folder, then evaluate it with `test_pretrained_model.py`.
+
+Example for a MOMENT + LLaMA checkpoint on SP500:
+
+```bash
+python test_pretrained_model.py \
+  --model-path /path/to/downloaded/checkpoint/best_model.pth \
+  --ts-backbone moment \
+  --text-backbone llama \
+  --moment-path /path/to/MOMETN-1-large \
+  --text-model-path /path/to/llama3-2-3B \
+  --event-dir data/event \
+  --series-dir data/series \
+  --series-id SP500 \
+  --seq-len 35 \
+  --pred-len 140 \
+  --batch-size 16 \
+  --eval-horizons 35 70 140 \
+  --output-json outputs/sp500_metrics.json
+```
+
+The evaluation script reports forecasting metrics (`MSE`, `MAE`) and financial metrics including directional hit rate, Sharpe ratio, investment return ratio, maximum drawdown, and Calmar ratio across the requested horizons.
+
+For Kronos checkpoints, replace `--moment-path` with:
+
+```bash
+--kronos-model-path /path/to/Kronos-base \
+--kronos-tokenizer-path /path/to/Kronos-Tokenizer-base
+```
+
+For Phi checkpoints, set:
+
+```bash
+--text-backbone phi \
+--text-model-path /path/to/Phi-3.5-mini-instruct
+```
+
+Use `--inverse-transform` if endpoint financial metrics should be computed in original scaler space instead of scaled space.
+
+## Train From Scratch
+
+The default training configuration uses:
+
+- MOMENT time-series encoder (`--ts-backbone moment`)
+- LLaMA-family text encoder (`--text-backbone llama`)
+- SP500 series (`--series-id SP500`)
+- `seq_len=35`, `pred_len=140`
+- three-stage training with 2 epochs per stage by default
+
+Run training with default settings:
+
+```bash
+python train.py \
+  --moment-path /path/to/MOMETN-1-large \
+  --text-model-path /path/to/llama3-2-3B \
+  --event-dir data/event \
+  --series-dir data/series \
+  --output-path outputs/gs_fuse_sp500_default
+```
+
+Training writes checkpoints and logs under the selected output directory, including:
+
+```text
+outputs/gs_fuse_sp500_default/best_model.pth
+outputs/gs_fuse_sp500_default/lastest_model.pth
+outputs/gs_fuse_sp500_default/log.txt
+outputs/gs_fuse_sp500_default/tokenizer/
+```
+
+To change the default forecast or dataset:
+
+```bash
+python train.py \
+  --moment-path /path/to/MOMETN-1-large \
+  --text-model-path /path/to/llama3-2-3B \
+  --event-dir data/event \
+  --series-dir data/series \
+  --series-id NASDAQ \
+  --seq-len 35 \
+  --pred-len 70 \
+  --batch-size 32 \
+  --output-path outputs/gs_fuse_nasdaq_len70
+```
+
+To train with Kronos instead of MOMENT:
+
+```bash
+python train.py \
+  --ts-backbone kronos \
+  --text-backbone llama \
+  --kronos-model-path /path/to/Kronos-base \
+  --kronos-tokenizer-path /path/to/Kronos-Tokenizer-base \
+  --text-model-path /path/to/llama3-2-3B \
+  --event-dir data/event \
+  --series-dir data/series \
+  --output-path outputs/gs_fuse_kronos_llama
+```
 
 ## Supported Backbones
 
-| Modality | Options | CLI flag |
-|----------|---------|----------|
-| Time series | MOMENT, Kronos | `--ts-backbone moment|kronos` |
-| Text | LLaMA-family, Phi-family | `--text-backbone llama|phi` |
+- Time-series encoders: MOMENT and Kronos via `--ts-backbone moment|kronos`
+- Text encoders: LLaMA-family and Phi-family via `--text-backbone llama|phi`
 
-Any time-series and text pairing is valid, for example MOMENT + Phi or Kronos + LLaMA.
+Any supported time-series encoder can be paired with any supported text encoder.
 
 ## Architecture
 
@@ -23,9 +155,9 @@ TS windows   -> ts encoder (MOMENT / Kronos) -> ts tokens --+
 
 Training runs in three stages:
 
-1. Stage 1: TS-only pretraining with the sliding-window loader.
-2. Stage 2: text-only pretraining with the event loader.
-3. Stage 3: full multimodal training.
+1. TS-only pretraining with the sliding-window loader.
+2. Text-only pretraining with the event loader.
+3. Full multimodal training.
 
 ## Project Layout
 
@@ -50,110 +182,18 @@ GS-Fuse/
     `-- test_pretrained_eval_metrics.py
 ```
 
-## Environment
-
-Use the unified conda environment:
+## Quick Checks
 
 ```bash
-conda env create -f environment.yml
-conda activate gs-fuse
+python -m py_compile \
+  train.py model/gs_fuse.py model/ts_encoders.py model/text_encoders.py \
+  test_pretrained_model.py
+
+python -m pytest tests/test_encoder_shapes.py -q
+python -m pytest tests/test_pretrained_eval_metrics.py -q
 ```
 
-`environment.yml` unifies the MOMENT and Phi exports with the deployed Kronos runtime needs. It keeps the stable MOMENT-compatible pins (`torch==2.3.0`, `transformers==4.43.1`, `momentfm==0.1.4`) and adds Kronos dependencies such as `einops`.
-
-## External Assets
-
-Before training or evaluation, provide local paths or Hugging Face IDs for the required external assets:
-
-- Text encoder weights: LLaMA or Phi.
-- MOMENT checkpoint when using `--ts-backbone moment`.
-- Kronos model and tokenizer when using `--ts-backbone kronos`.
-- Event text data under `data/event/` or a custom `--event-dir`.
-- Time-series CSV data under `data/series/` or a custom `--series-dir`.
-
-Large datasets, pretrained weights, checkpoints, outputs, and logs are intentionally ignored by git.
-
-## Training
-
-### MOMENT + LLaMA
-
-```bash
-python train.py \
-  --ts-backbone moment \
-  --text-backbone llama \
-  --moment-path /path/to/MOMETN-1-large \
-  --text-model-path /path/to/llama3-2-3B \
-  --series-id SP500 \
-  --seq-len 35 \
-  --pred-len 140 \
-  --batch-size 32 \
-  --output-path /path/to/output
-```
-
-### Kronos + Phi
-
-```bash
-python train.py \
-  --ts-backbone kronos \
-  --text-backbone phi \
-  --kronos-model-path /path/to/Kronos-base \
-  --kronos-tokenizer-path /path/to/Kronos-Tokenizer-base \
-  --text-model-path /path/to/Phi-3.5-mini-instruct \
-  --series-id SP500 \
-  --output-path /path/to/output
-```
-
-### Useful Training Flags
-
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--event-dir` | `data/event` | Event text data root |
-| `--series-dir` | `data/series` | Time-series data root |
-| `--stage1-epochs` | `2` | TS-only stage epochs |
-| `--stage2-epochs` | `2` | Text-only stage epochs |
-| `--num-epochs` | `2` | Multimodal stage epochs |
-| `--finetune-ts-last-block` | off | Partially unfreeze MOMENT/Kronos last block in Stage 1 |
-| `--finetune-text-last-block` | model default | Partially unfreeze LLaMA/Phi last block |
-
-## Checkpoint Evaluation
-
-Use `test_pretrained_model.py` for pretrained GS-FUSE checkpoint evaluation. It reports forecasting metrics and long/short financial strategy summaries at configurable forecast horizons.
-
-```bash
-python test_pretrained_model.py \
-  --model-path /path/to/checkpoint/lastest_model.pth \
-  --ts-backbone moment \
-  --text-backbone phi \
-  --moment-path /path/to/MOMETN-1-large \
-  --text-model-path /path/to/Phi-3.5-mini-instruct \
-  --series-id NASDAQ \
-  --seq-len 35 \
-  --pred-len 140 \
-  --eval-horizons 35 70 140 \
-  --output-json /path/to/metrics.json
-```
-
-For Kronos checkpoints, replace `--moment-path` with `--kronos-model-path` and `--kronos-tokenizer-path`. Add `--inverse-transform` if endpoint DHR/Sharpe should be computed in original scaler space instead of scaled space.
-
-## Data Layout
-
-```text
-data/event/     # event text files by type/date
-data/series/    # per-asset time-series CSVs
-```
-
-## Checkpoints
-
-GS-FUSE saves combined checkpoints via `GSFuse.save_model_combined()`.
-
-| Key | Contents |
-|-----|----------|
-| `ts_encoder` | MOMENT or Kronos backbone weights |
-| `text_encoder` | Text encoder module state |
-| `llm` | Legacy-compatible LLM weights saved for older checkpoints |
-| `decoder`, `llm_proj`, fusion layers | Fusion and prediction head |
-
-Loading accepts legacy checkpoint keys (`moment`, `llm`) from older runs. New checkpoints use `ts_encoder` and `text_encoder`.
+Full training and checkpoint evaluation require the external assets listed above.
 
 ## Python API
 
@@ -170,20 +210,3 @@ model = GSFuse(
     d=4,
 )
 ```
-
-## Quick Checks
-
-```bash
-python -m py_compile \
-  train.py model/gs_fuse.py model/ts_encoders.py model/text_encoders.py \
-  test_pretrained_model.py
-
-python -m pytest tests/test_encoder_shapes.py -q
-python -m pytest tests/test_pretrained_eval_metrics.py -q
-```
-
-These checks require the `gs-fuse` conda environment. Full training and checkpoint evaluation also require the external assets listed above.
-
-## Migration Notes
-
-Legacy training wrappers, optional analysis scripts, and compatibility shim modules have been removed from the public release. Use `train.py` for all training runs, `test_pretrained_model.py` for checkpoint evaluation, and import `GSFuse` directly from `model.gs_fuse` or `model`.
