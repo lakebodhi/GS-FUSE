@@ -1,4 +1,4 @@
-# 在你的主脚本或 CAMEF 模型文件中添加以下代码
+# GS-FUSE optional Kronos encoder module
 
 import torch
 import torch.nn as nn

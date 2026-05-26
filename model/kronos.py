@@ -939,7 +939,7 @@ class KronosPredictor:
 
 class KronosAdapter:
     """
-    Thin wrapper to provide TS embeddings to CAMEF, mimicking a 'feature pipeline'.
+# Thin wrapper to provide TS embeddings to GS-FUSE, mimicking a 'feature pipeline'.
     Usage:
         adapter = KronosAdapter(kronos_model, kronos_tokenizer, device="cuda:0", max_context=512, clip=5)
         token_emb, inst_emb = adapter.embed(x_seq, x_timestamp)

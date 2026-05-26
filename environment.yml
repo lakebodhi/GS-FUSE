@@ -1,0 +1,38 @@
+name: gs-fuse
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.11.9
+  - pip>=24.0
+  - numpy=1.25.2
+  - pandas=2.2.2
+  - scikit-learn=1.5.0
+  - scipy=1.13.1
+  - matplotlib=3.8.4
+  - packaging
+  - pip:
+      # Core deep-learning stack shared by MOMENT, Phi/LLaMA, and Kronos.
+      - torch==2.3.0
+      - triton==2.3.0
+      - transformers==4.43.1
+      - tokenizers==0.19.1
+      - accelerate==1.9.0
+      - huggingface-hub==0.24.0
+      - safetensors==0.4.3
+      - sentencepiece==0.2.0
+      - filelock==3.14.0
+      - fsspec==2024.5.0
+
+      # Time-series backbones.
+      - momentfm==0.1.4
+      - einops==0.8.1
+
+      # Runtime utilities.
+      - tqdm==4.66.4
+      - pyyaml==6.0.1
+      - requests==2.32.3
+      - psutil==6.0.0
+
+      # Test utilities for the lightweight checks in README.md.
+      - pytest>=8.0

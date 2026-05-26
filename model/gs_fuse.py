@@ -1,23 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-CAMEF Enhanced Training Script v3 (Last-Layer Fine-tuning)
-===========================================================
-Enhanced to achieve MSE ~0.0005
-
-Key Enhancements:
-1. Raw TS residual added to TS instance embedding (from v2)
-2. Learnable last-value residual - learns to predict CHANGES from last value
-3. Multi-scale temporal features from raw TS
-4. Direct temporal shortcut in decoder
-5. LLM last layer fine-tuning with very low learning rate
-
-The key insight: Financial time series are often near-random-walk. The best prediction
-is often "last value + small learned adjustment". This version learns that adjustment
-while still leveraging the full multimodal fusion.
-
-LLM Fine-tuning: Only the last transformer block of the LLM is fine-tuned with a very
-low learning rate (1e-6), enabling better text-TS alignment while preserving pretrained
-knowledge.
+GS-FUSE unified multimodal forecasting model and training utilities.
 """
 
 import os
@@ -37,11 +20,13 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
-from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+from transformers import AutoTokenizer
 from transformers.optimization import get_cosine_schedule_with_warmup
 
-# ----- MOMENT import -----
-from momentfm import MOMENTPipeline
+from model.ts_encoders import build_ts_encoder
+from model.text_encoders import build_text_encoder
+
+
 
 
 # Use float32 globally
@@ -106,7 +91,8 @@ EMA_DECAY = 0.99
 
 # ============== LLM Fine-tuning Configuration ==============
 # Unfreeze the last transformer block of LLaMA for fine-tuning
-FINETUNE_LLM_LAST_LAYER = True  # Enable fine-tuning of LLaMA's last layer
+FINETUNE_LLM_LAST_LAYER = True  # Enable fine-tuning of the text encoder last layer
+FINETUNE_TS_LAST_BLOCK = False  # Optional partial unfreeze for MOMENT/Kronos
 LLM_FINETUNE_LR = 1e-6  # Very low LR for LLM (10x lower than base)
 
 
@@ -159,30 +145,6 @@ class TrainingConfig:
 
     # Stage 3: Full Multimodal Training (current design)
     # Uses existing epoch count and learning rates
-
-
-def _load_llama_for_feature_extraction(name: str, use_4bit: bool = True):
-    bnb_config = None
-    if use_4bit:
-        bnb_config = BitsAndBytesConfig(
-            load_in_4bit=True,
-            bnb_4bit_quant_type="nf4",
-            bnb_4bit_use_double_quant=True,
-            bnb_4bit_compute_dtype=torch.float32
-        )
-    tok = AutoTokenizer.from_pretrained(name, use_fast=True)
-    if tok.pad_token is None:
-        tok.pad_token = tok.eos_token
-    model = AutoModelForCausalLM.from_pretrained(
-        name,
-        device_map="auto",
-        torch_dtype=torch.float32,
-        quantization_config=bnb_config if use_4bit else None
-    )
-    if hasattr(model, "config"):
-        model.config.use_cache = False
-    model.eval()
-    return tok, model
 
 
 # ---------------- Multi-Scale Temporal Feature Extractor ----------------
@@ -624,11 +586,15 @@ class TokenWiseAlignmentModule(nn.Module):
         return loss
 
 
-class CAMEF(nn.Module):
+class GSFuse(nn.Module):
     def __init__(
             self,
-            llama_name,
-            moment=None,
+            text_model_path=None,
+            ts_backbone="kronos",
+            text_backbone="llama",
+            moment_path=None,
+            kronos_model_path=None,
+            kronos_tokenizer_path=None,
             seq_len=35,
             pred_len=35,
             d=4,
@@ -639,8 +605,15 @@ class CAMEF(nn.Module):
             decoder_heads=8,
             use_ts_memory=True,
             max_token_num=20000,
+            # legacy aliases
+            llama_name=None,
     ):
-        super(CAMEF, self).__init__()
+        super(GSFuse, self).__init__()
+
+        if text_model_path is None and llama_name is None:
+            raise ValueError("text_model_path (or legacy llama_name) is required")
+        if text_model_path is None:
+            text_model_path = llama_name
 
         self.seq_len, self.pred_len = seq_len, pred_len
         self.window, self.stride = window, stride
@@ -648,46 +621,51 @@ class CAMEF(nn.Module):
         self.batch_size = batch_size
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.max_text_tokens = max_token_num
+        self.ts_backbone = ts_backbone
+        self.text_backbone = text_backbone
 
-        # -------- LLM text encoder --------
-        self.tokenizer, self.llm = _load_llama_for_feature_extraction(llama_name, use_4bit=USE_4BIT)
+        # -------- Text encoder (LLaMA or Phi) --------
+        self.text_encoder = build_text_encoder(text_backbone, text_model_path, use_4bit=USE_4BIT)
+        text_hidden = self.text_encoder.output_dim
 
         self.llm_proj = nn.Sequential(
-            nn.LayerNorm(LLAMA_HIDDEN),
-            nn.Linear(LLAMA_HIDDEN, 1024), nn.GELU(),
+            nn.LayerNorm(text_hidden),
+            nn.Linear(text_hidden, 1024), nn.GELU(),
             nn.Dropout(0.05),
             nn.Linear(1024, FUSE_DIM), nn.ReLU(),
             nn.Dropout(0.05),
         ).to(self.device)
 
-        # -------- MOMENT TS encoder --------
-        self.moment_model = MOMENTPipeline.from_pretrained(
-            pretrained_model_name_or_path=moment,
-            model_kwargs={'task_name': 'embedding'},
-            cache_dir=r'moment_model',
-            local_files_only=True,
-        ).to(self.device)
-        self.moment_model.init()
+        # -------- TS encoder (MOMENT or Kronos) --------
+        self.ts_encoder = build_ts_encoder(
+            ts_backbone,
+            self.device,
+            moment_path=moment_path,
+            kronos_model_path=kronos_model_path,
+            kronos_tokenizer_path=kronos_tokenizer_path,
+            seq_len=seq_len,
+            d=d,
+        )
 
-        moment_dim = 1024
+        ts_dim = self.ts_encoder.output_dim
 
         self.ts_feat_to_fuse = nn.Sequential(
-            nn.LayerNorm(moment_dim),
-            nn.Linear(moment_dim, FUSE_DIM),
+            nn.LayerNorm(ts_dim),
+            nn.Linear(ts_dim, FUSE_DIM),
             nn.GELU(),
         ).to(self.device)
 
         self.ts_inst_to_fuse = nn.Sequential(
-            nn.LayerNorm(moment_dim),
-            nn.Linear(moment_dim, FUSE_DIM),
+            nn.LayerNorm(ts_dim),
+            nn.Linear(ts_dim, FUSE_DIM),
             nn.GELU(),
         ).to(self.device)
 
         self.embed_project = nn.Sequential(
-            nn.LayerNorm(moment_dim),
-            nn.Linear(moment_dim, 1024, bias=True), nn.GELU(),
+            nn.LayerNorm(ts_dim),
+            nn.Linear(ts_dim, 1024, bias=True), nn.GELU(),
             nn.Dropout(0.05),
-            nn.Linear(1024, moment_dim, bias=True), nn.GELU(),
+            nn.Linear(1024, ts_dim, bias=True), nn.GELU(),
         ).to(self.device)
 
         # Raw TS residual projection
@@ -797,68 +775,31 @@ class CAMEF(nn.Module):
             return x.transpose(1, 2)
         raise ValueError(f"TS shape incompatible with d={self.d}: {tuple(x.shape)}")
 
+    @property
+    def tokenizer(self):
+        return self.text_encoder.tokenizer
+
+    @property
+    def llm(self):
+        return self.text_encoder.llm
+
     @torch.no_grad()
     def text_embedding(self, text: str):
-        ids = self.tokenizer(text, return_tensors='pt', truncation=False, add_special_tokens=True)
-        input_ids = ids['input_ids'][0]
-        attn_mask_full = torch.ones_like(input_ids)
-        embeddings = []
-        start = 0
-        while start < input_ids.shape[0]:
-            end = min(start + self.window, input_ids.shape[0])
-            chunk_ids = input_ids[start:end].unsqueeze(0).to(self.device)
-            chunk_mask = attn_mask_full[start:end].unsqueeze(0).to(self.device)
-            out = self.llm.model(
-                input_ids=chunk_ids, attention_mask=chunk_mask,
-                output_hidden_states=True, use_cache=False
-            )
-            H = out.hidden_states[-1][0]
-            emb = H.mean(dim=0, keepdim=True)
-            embeddings.append(emb.float().cpu())
-            start += self.stride
-        emb_mean = torch.mean(torch.cat(embeddings, dim=0), dim=0, keepdim=False).to(self.device)
-        return emb_mean
+        return self.text_encoder.encode_instance(text, self.window, self.stride, self.device)
 
     @torch.no_grad()
     def get_text_tokens_all(self, text: str):
-        ids = self.tokenizer(
-            text,
-            return_tensors='pt',
-            truncation=True,
-            max_length=self.max_text_tokens,
-            add_special_tokens=True,
-            padding="max_length",
+        tok_h, mask = self.text_encoder.encode_tokens(
+            text, self.window, self.stride, self.max_text_tokens, self.device
         )
-        input_ids = ids['input_ids'][0].to(self.device)
-        attn_mask_full = ids['attention_mask'][0].to(self.device)
-
-        feats = []
-        start = 0
-        while start < input_ids.size(0):
-            end = min(start + self.window, input_ids.size(0))
-            chunk_ids = input_ids[start:end].unsqueeze(0)
-            chunk_mask = attn_mask_full[start:end].unsqueeze(0)
-
-            out = self.llm.model(
-                input_ids=chunk_ids,
-                attention_mask=chunk_mask,
-                output_hidden_states=True,
-                use_cache=False,
-            )
-            H = out.hidden_states[-1][0].float()
-            feats.append(H)
-            start += self.stride
-
-        if len(feats) == 0:
+        if tok_h.size(1) == 0:
             tokens = torch.zeros(1, 1, FUSE_DIM, device=self.device)
             mask = torch.ones(1, 1, dtype=torch.bool, device=self.device)
             return tokens, mask
-
-        tok_h = torch.cat(feats, dim=0)
-        T = self.llm_proj(tok_h)
+        T = self.llm_proj(tok_h[0])
         T = T.unsqueeze(0)
-        mask = torch.zeros(1, T.size(1), dtype=torch.bool, device=self.device)
-        return T, mask
+        out_mask = torch.zeros(1, T.size(1), dtype=torch.bool, device=self.device)
+        return T, out_mask
 
     def _pad_and_stack(self, seqs, masks, pad_value=0.0):
         B = len(seqs)
@@ -887,33 +828,12 @@ class CAMEF(nn.Module):
         raw_ts_residual = self.residual_project(x_flat)
         return raw_ts_residual
 
-    @torch.no_grad()
-    def _moment_encode_per_timestep(self, x_cf: torch.Tensor):
-        self.moment_model.eval()
-        with torch.no_grad():
-            output = self.moment_model.embed(x_enc=x_cf, reduction='none')
-            patch_emb = output.embeddings
-
-        B, C, n_patches, D = patch_emb.shape
-        L = x_cf.size(2)
-        patch_emb_avg = patch_emb.mean(dim=1)
-
-        if n_patches != L:
-            token_emb = torch.nn.functional.interpolate(
-                patch_emb_avg.transpose(1, 2),
-                size=L, mode='linear', align_corners=False
-            ).transpose(1, 2)
-        else:
-            token_emb = patch_emb_avg
-
-        inst_emb = token_emb.mean(dim=1)
-        return token_emb, inst_emb
-
     def get_ts_tokens_full(self, x_cf: torch.Tensor):
+        """Return fused TS tokens, mask, and instance embedding."""
         B = x_cf.size(0)
 
         with torch.no_grad():
-            ts_token_emb, ts_instance = self._moment_encode_per_timestep(x_cf)
+            ts_token_emb, ts_instance = self.ts_encoder.encode_per_timestep(x_cf)
         ts_tok = self.ts_feat_to_fuse(ts_token_emb)
         ts_inst = self.ts_inst_to_fuse(ts_instance)
 
@@ -1199,48 +1119,16 @@ class CAMEF(nn.Module):
     def predict_one(self, text, seq_data):
         return self.forward(text, seq_data)
 
-    def moment_last_block_parameters(self):
-        mm = getattr(self, "moment_model", None)
-        if mm is None:
-            return []
+    def ts_encoder_last_block_parameters(self):
+        return self.ts_encoder.last_block_parameters()
 
-        for path in [
-            ("transformer", "layers"),
-            ("encoder", "layers"),
-            ("layers",),
-            ("backbone", "layers"),
-        ]:
-            cur = mm
-            ok = True
-            for seg in path:
-                if hasattr(cur, seg):
-                    cur = getattr(cur, seg)
-                else:
-                    ok = False
-                    break
-            if ok and hasattr(cur, "__len__") and len(cur) > 0:
-                last_block = cur[-1]
-                return list(last_block.parameters())
 
-        candidates = [m for m in mm.modules() if isinstance(m, torch.nn.TransformerEncoderLayer)]
-        if candidates:
-            return list(candidates[-1].parameters())
-
-        last_with_params = None
-        for m in mm.modules():
-            owns_params = any(True for _ in m.parameters(recurse=False))
-            if owns_params:
-                last_with_params = m
-        return list(last_with_params.parameters()) if last_with_params is not None else []
+    def text_encoder_last_block_parameters(self):
+        return self.text_encoder.last_block_parameters()
 
     def llm_last_block_parameters(self):
-        """
-        Get parameters from the last transformer block of the LLM.
-        This allows fine-tuning just the last layer with a very low learning rate.
-        """
-        llm = getattr(self, "llm", None)
-        if llm is None:
-            return []
+        return self.text_encoder_last_block_parameters()
+
 
         # Try different paths to find transformer layers
         for path in [
@@ -1287,7 +1175,7 @@ class CAMEF(nn.Module):
         except Exception:
             dec_heads = None
         return {
-            "arch": "CAMEF",
+            "arch": "GS-FUSE",
             "version": "v3-learnable-last-value-llm-last-layer-finetune",
             "use_raw_ts_residual": USE_RAW_TS_RESIDUAL,
             "use_learnable_last_value": USE_LEARNABLE_LAST_VALUE,
@@ -1298,7 +1186,9 @@ class CAMEF(nn.Module):
             "pred_len": int(self.pred_len),
             "d": int(self.d),
             "fuse_dim": int(FUSE_DIM),
-            "llama_name": llm_name,
+            "text_model_path": llm_name,
+            "text_backbone": self.text_backbone,
+            "ts_backbone": self.ts_backbone,
             "llm_hidden": llm_hidden,
             "use_4bit": bool(USE_4BIT),
             "decoder_layers": int(dec_layers) if dec_layers is not None else None,
@@ -1310,8 +1200,9 @@ class CAMEF(nn.Module):
 
     def save_model_combined(self, save_path="model_checkpoint.pth", **kwargs):
         state_dicts = {
-            "moment": self.moment_model.state_dict(),
-            "llm": self.llm.state_dict(),
+            "ts_encoder": self.ts_encoder.state_dict(),
+            "text_encoder": self.text_encoder.state_dict(),
+            "llm": self.text_encoder.llm.state_dict(),
             "llm_proj": self.llm_proj.state_dict(),
             "embed_project": self.embed_project.state_dict(),
             "ts_feat_to_fuse": self.ts_feat_to_fuse.state_dict(),
@@ -1350,14 +1241,35 @@ class CAMEF(nn.Module):
         print(f"[save] Tokenizer saved to: {tok_dir}")
 
     def load_model_combined(self, save_path="model_checkpoint.pth", strict=True):
-        ckpt = torch.load(save_path, map_location=self.device)
+        # Keep checkpoint tensors on CPU while dispatching into already-created
+        # modules. Loading the whole checkpoint onto GPU can temporarily double
+        # memory use, especially for legacy checkpoints that include full LLM
+        # weights we may skip under strict=False.
+        ckpt = torch.load(save_path, map_location="cpu")
         sd = ckpt["state_dicts"]
         meta = ckpt.get("metadata", {})
 
-        if "moment" in sd and (sd["moment"] is not None):
-            self.moment_model.load_state_dict(sd["moment"], strict=True)
+        if "ts_encoder" in sd and sd["ts_encoder"] is not None:
+            self.ts_encoder.load_state_dict(sd["ts_encoder"], strict=True)
+        elif "moment" in sd and sd["moment"] is not None:
+            try:
+                target = getattr(self.ts_encoder, "backbone", self.ts_encoder)
+                target.load_state_dict(sd["moment"], strict=True)
+            except Exception as exc:
+                raise
 
-        self.llm.load_state_dict(sd["llm"], strict=True)
+        if "text_encoder" in sd and sd["text_encoder"] is not None:
+            self.text_encoder.load_state_dict(sd["text_encoder"], strict=True)
+        if "llm" in sd and sd["llm"] is not None:
+            try:
+                self.text_encoder.llm.load_state_dict(sd["llm"], strict=strict)
+            except Exception as exc:
+                if strict:
+                    raise
+                print(
+                    "[load] Skipping incompatible legacy llm state because strict=False. "
+                    "Using the text backbone loaded from --text-model-path."
+                )
         self.llm_proj.load_state_dict(sd["llm_proj"], strict=False)
         self.embed_project.load_state_dict(sd["embed_project"], strict=False)
         if "ts_feat_to_fuse" in sd and sd["ts_feat_to_fuse"] is not None:
@@ -1394,11 +1306,24 @@ class CAMEF(nn.Module):
 
         tok_dir = os.path.join(os.path.dirname(save_path), "tokenizer")
         if os.path.isdir(tok_dir):
-            self.tokenizer = AutoTokenizer.from_pretrained(tok_dir, use_fast=True)
-            if self.tokenizer.pad_token is None:
-                self.tokenizer.pad_token = self.tokenizer.eos_token
+            try:
+                tok = AutoTokenizer.from_pretrained(tok_dir, use_fast=True, trust_remote_code=True)
+                if tok.pad_token is None:
+                    tok.pad_token = tok.eos_token
+                if hasattr(self.text_encoder, "_tokenizer"):
+                    self.text_encoder._tokenizer = tok
+            except Exception as exc:
+                if strict:
+                    raise
+                print(
+                    "[load] Skipping incompatible checkpoint tokenizer because strict=False. "
+                    "Using the tokenizer loaded from --text-model-path."
+                )
 
         print(f"[load] Loaded checkpoint: {save_path}")
+        del ckpt, sd
+        if self.device.type == "cuda":
+            torch.cuda.empty_cache()
 
 
 # ===================== Loss & Utils =====================
@@ -1509,11 +1434,11 @@ def train(model, train_loader, test_loader, vali_loader, num_epochs, output_path
     else:
         print("[CONFIG] FINETUNE_LLM_LAST_LAYER: False")
 
-    if model.moment_model is not None:
-        for p in model.moment_model.parameters():
-            p.requires_grad = False
-        for p in model.moment_last_block_parameters():
-            p.requires_grad = True
+    if model.ts_encoder is not None:
+        model.ts_encoder.freeze()
+        if FINETUNE_TS_LAST_BLOCK:
+            for p in model.ts_encoder_last_block_parameters():
+                p.requires_grad = True
     for p in model.decoder.parameters():
         p.requires_grad = True
     for p in model.bi_gate_layer.parameters():
@@ -1963,7 +1888,7 @@ def train(model, train_loader, test_loader, vali_loader, num_epochs, output_path
                         s = torch.clamp(diff.detach().abs().mean(), min=TrainingConfig.GC_MIN_SCALE)
                     else:
                         s = torch.tensor(TrainingConfig.GC_SIGMOID_SCALE, device=diff.device, dtype=diff.dtype)
-                    print("check s", s)
+
                     logit = TrainingConfig.GC_GAIN * diff / s
                     logit = torch.clamp(logit, -TrainingConfig.GC_LOGIT_CLAMP, TrainingConfig.GC_LOGIT_CLAMP)
 
@@ -2764,7 +2689,7 @@ def train_stage1_ts_only(model, sw_train_loader, sw_vali_loader, num_epochs=None
     - Last value module (if enabled)
 
     Args:
-        model: The CAMEF model
+        model: The GS-FUSE model
         sw_train_loader: Sliding window training data loader (from sliding_window_dataloader.py)
         sw_vali_loader: Sliding window validation data loader (from sliding_window_dataloader.py)
         num_epochs: Number of epochs for Stage 1
@@ -2777,7 +2702,7 @@ def train_stage1_ts_only(model, sw_train_loader, sw_vali_loader, num_epochs=None
     print("STAGE 1: Time Series Pre-training (Sliding Window Fashion)")
     print(f"  Epochs: {num_epochs}")
     print(f"  Learning Rate: {TrainingConfig.STAGE1_LR}")
-    print(f"  MOMENT: Last layer fine-tuning only")
+    print(f"  TS encoder: optional last-block fine-tuning")
     print(f"  Data: Sliding window loaders (continuous time series)")
     print("=" * 80)
 
@@ -2807,11 +2732,10 @@ def train_stage1_ts_only(model, sw_train_loader, sw_vali_loader, num_epochs=None
         for p in model.last_value_module.parameters():
             p.requires_grad = True
 
-    # Unfreeze MOMENT last block only for fine-tuning
-    if model.moment_model is not None:
-        for p in model.moment_last_block_parameters():
-            p.requires_grad = False
-        print(f"[Stage 1] MOMENT: Last layer frozen for fine-tuning")
+    if model.ts_encoder is not None and FINETUNE_TS_LAST_BLOCK:
+        for p in model.ts_encoder_last_block_parameters():
+            p.requires_grad = True
+    #     print(f"[Stage 1] MOMENT: Last layer frozen for fine-tuning")
 
     # Count trainable parameters
     trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -2838,12 +2762,11 @@ def train_stage1_ts_only(model, sw_train_loader, sw_vali_loader, num_epochs=None
             {'params': model.last_value_module.parameters(), 'lr': TrainingConfig.STAGE1_LR * 2, 'weight_decay': 0.01}
         )
 
-    # Add MOMENT last block parameters with slightly lower LR
-    if model.moment_model is not None:
+    if model.ts_encoder is not None and FINETUNE_TS_LAST_BLOCK:
         trainable_groups.append({
-            'params': model.moment_last_block_parameters(),
-            'lr': TrainingConfig.STAGE1_LR * 0.1,  # Lower LR for foundation model
-            'weight_decay': 0.01
+            'params': model.ts_encoder_last_block_parameters(),
+            'lr': TrainingConfig.STAGE1_LR * 0.1,
+            'weight_decay': 0.01,
         })
 
     optimizer = optim.AdamW(trainable_groups, betas=(0.9, 0.999), eps=1e-8)
@@ -3157,7 +3080,7 @@ def train_three_stage(model, train_loader, test_loader, vali_loader, num_epochs,
     3. Stage 3: Full Multimodal Training (current design)
 
     Args:
-        model: The CAMEF model
+        model: The GS-FUSE model
         train_loader: Event-based training data loader (for Stage 2 and 3)
         test_loader: Event-based test data loader
         vali_loader: Event-based validation data loader (for Stage 2 and 3)

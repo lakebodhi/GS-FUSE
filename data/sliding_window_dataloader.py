@@ -3,7 +3,7 @@ Sliding Window Time Series Dataloader for Stage 1 Pre-training
 
 This module provides a dataloader for continuous time series data using sliding windows.
 It is designed to be used alongside the event-based dataloader for the three-stage
-training pipeline in CAMEF.
+training pipeline in GS-FUSE.
 
 Stage 1 uses this sliding window approach to pre-train the decoder on pure time series
 forecasting without event-based segmentation.
