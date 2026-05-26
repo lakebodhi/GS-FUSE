@@ -119,7 +119,7 @@ python train.py \
   --series-dir data/series \
   --series-id NASDAQ \
   --seq-len 35 \
-  --pred-len 70 \
+  --pred-len 140 \
   --batch-size 32 \
   --output-path outputs/gs_fuse_nasdaq_len70
 ```
@@ -195,18 +195,3 @@ python -m pytest tests/test_pretrained_eval_metrics.py -q
 
 Full training and checkpoint evaluation require the external assets listed above.
 
-## Python API
-
-```python
-from model.gs_fuse import GSFuse, train_three_stage
-
-model = GSFuse(
-    text_model_path="/path/to/llama-or-phi",
-    ts_backbone="moment",
-    text_backbone="llama",
-    moment_path="/path/to/MOMENT",
-    seq_len=35,
-    pred_len=140,
-    d=4,
-)
-```
