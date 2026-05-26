@@ -8,8 +8,8 @@ The public codebase centers on one model class (`GSFuse`), one training entrypoi
 
 Download the external assets before running evaluation or training:
 
-- Trained GS-FUSE model checkpoints: [Alipan](https://www.alipan.com/s/NBvf1wWskh4)
-- GS-FUSE dataset: [Google Drive](https://drive.google.com/file/d/1fH436rkOHVYIG2JPROrFTXXemnY7JPdB/view?usp=sharing)
+- Trained GS-FUSE model checkpoints: [Google Drive for Trained Models]([https://www.alipan.com/s/NBvf1wWskh4](https://drive.google.com/drive/folders/1-Mx2VeBnB8YKGrDCaZSNkbc_7bj6y5Gj?usp=sharing))
+- GS-FUSE dataset: [Google Drive for Dataset](https://drive.google.com/file/d/1fH436rkOHVYIG2JPROrFTXXemnY7JPdB/view?usp=sharing)
 
 The dataset combines CAMEF event data with FNDPID financial time-series data. After extraction, place or symlink the files so the project can find:
 
