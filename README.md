@@ -55,7 +55,7 @@ conda activate gs-fuse
 
 ### Evaluate A Trained Model
 
-Download a trained checkpoint from [Alipan](https://www.alipan.com/s/NBvf1wWskh4), or the [Google Drive trained-model mirror](https://drive.google.com/drive/folders/1-Mx2VeBnB8YKGrDCaZSNkbc_7bj6y5Gj?usp=sharing), then evaluate it with `test_pretrained_model.py`.
+Download a trained checkpoint from [Google Drive for Trained Models](https://drive.google.com/drive/folders/1-Mx2VeBnB8YKGrDCaZSNkbc_7bj6y5Gj?usp=sharing), then evaluate it with `test_pretrained_model.py`.
 
 Example for a MOMENT + LLaMA checkpoint on SP500:
 
