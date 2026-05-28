@@ -16,32 +16,9 @@ The paper is available on arXiv: [GS-FUSE: Granger-Supervised Gated Fusion and M
 
 ## Model Architecture
 
-GS-FUSE is designed as a plug-and-play adapter on top of off-the-shelf time-series foundation models and large language models.
+![GS-FUSE model architecture](assets/gs-fuse-architecture.png)
 
-```text
-Event text
-  -> LLaMA / Phi text encoder
-  -> fine-grained text tokens
-  -> multi-granularity alignment -----+
-                                      |
-Historical price window              +-> Granger-supervised gated fusion -> decoder -> multi-horizon forecast
-  -> MOMENT / Kronos TS encoder       |
-  -> time-series tokens --------------+
-```
-
-The core components are:
-
-- Pluggable text encoder: LLaMA-family or Phi-family models encode event summaries and counterfactual event text.
-- Pluggable time-series encoder: MOMENT or Kronos encodes historical market windows.
-- Granger-supervised gated fusion: learns whether event text contributes incremental predictive signal beyond time-series history.
-- Multi-granularity alignment: aligns high-level event representations and fine-grained text/time-series cues with future market trajectories.
-- Forecast decoder: maps fused representations to multi-step financial forecasts.
-
-Training runs in three stages:
-
-1. TS-only pretraining with the sliding-window loader.
-2. Text-only pretraining with the event loader.
-3. Full multimodal training with gated fusion and alignment objectives.
+Figure: The neural architecture of GS-FUSE.
 
 ## Dataset Access
 
