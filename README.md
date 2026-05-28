@@ -102,7 +102,7 @@ The default training configuration uses:
 - LLaMA-family text encoder (`--text-backbone llama`)
 - SP500 series (`--series-id SP500`)
 - `seq_len=35`, `pred_len=140`
-- three-stage training with 2 epochs per stage by default
+- three-stage training: `--stage1-epochs` (TS-only), `--stage2-epochs` (text-only), `--num-epochs` (full multimodal)
 
 Run training with default settings:
 
@@ -112,6 +112,9 @@ python train.py \
   --text-model-path /path/to/llama3-2-3B \
   --event-dir data/event \
   --series-dir data/series \
+  --stage1-epochs 2 \
+  --stage2-epochs 2 \
+  --num-epochs 2 \
   --output-path outputs/gs_fuse_sp500_default
 ```
 
@@ -136,7 +139,10 @@ python train.py \
   --seq-len 35 \
   --pred-len 140 \
   --batch-size 32 \
-  --output-path outputs/gs_fuse_nasdaq_len70
+  --stage1-epochs 2 \
+  --stage2-epochs 2 \
+  --num-epochs 2 \
+  --output-path outputs/gs_fuse_nasdaq_len140
 ```
 
 To train with Kronos instead of MOMENT:
@@ -150,6 +156,9 @@ python train.py \
   --text-model-path /path/to/llama3-2-3B \
   --event-dir data/event \
   --series-dir data/series \
+  --stage1-epochs 2 \
+  --stage2-epochs 2 \
+  --num-epochs 2 \
   --output-path outputs/gs_fuse_kronos_llama
 ```
 
