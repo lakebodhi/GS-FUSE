@@ -4,10 +4,9 @@
 
 GS-FUSE is a multimodal event-driven financial forecasting framework that learns when macro-financial text provides predictive value beyond historical prices, then fuses that signal with time-series representations for multi-horizon market forecasting.
 
-- Paper: [arXiv:2605.28520](https://arxiv.org/abs/2605.28520)
+- Arxiv Paper: [arXiv:2605.28520](https://arxiv.org/abs/2605.28520)
 - Proceedings paper: Coming Soon
-- Trained GS-FUSE model checkpoints: [Alipan](https://www.alipan.com/s/NBvf1wWskh4)
-- Trained model mirror: [Google Drive for Trained Models](https://drive.google.com/drive/folders/1-Mx2VeBnB8YKGrDCaZSNkbc_7bj6y5Gj?usp=sharing)
+- Trained GS-FUSE model checkpoints: [Google Drive for Trained Models](https://drive.google.com/drive/folders/1-Mx2VeBnB8YKGrDCaZSNkbc_7bj6y5Gj?usp=sharing)
 - Dataset: [Google Drive for Dataset](https://drive.google.com/file/d/1fH436rkOHVYIG2JPROrFTXXemnY7JPdB/view?usp=sharing)
 
 ## Paper Overview
