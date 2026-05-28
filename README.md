@@ -1,6 +1,5 @@
-# GS-FUSE
+# GS-FUSE: Granger-Supervised Gated Fusion and Multi-Granularity Alignment for Event-Driven Financial Forecasting
 
-**GS-FUSE: Granger-Supervised Gated Fusion and Multi-Granularity Alignment for Event-Driven Financial Forecasting**
 
 GS-FUSE is a multimodal event-driven financial forecasting framework that learns when macro-financial text provides predictive value beyond historical prices, then fuses that signal with time-series representations for multi-horizon market forecasting.
 
