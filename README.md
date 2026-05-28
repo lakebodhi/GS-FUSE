@@ -1,10 +1,10 @@
 # GS-FUSE: Granger-Supervised Gated Fusion and Multi-Granularity Alignment for Event-Driven Financial Forecasting
 
 
-GS-FUSE is a multimodal event-driven financial forecasting framework that learns when macro-financial text provides predictive value beyond historical prices, then fuses that signal with time-series representations for multi-horizon market forecasting.
+GS-FUSE is a multimodal event-driven financial forecasting framework that learns when macro-financial text provides predictive value beyond historical prices, then fuses that signal with time-series representations for multi-horizon market forecasting. This work has been **accepted at KDD 2026**.
 
-- Arxiv Paper: [arXiv:2605.28520](https://arxiv.org/abs/2605.28520)
-- Proceedings paper: Coming Soon
+- arXiv paper: [arXiv:2605.28520](https://arxiv.org/abs/2605.28520)
+- Proceedings paper (KDD 2026): Coming Soon
 - Trained GS-FUSE model checkpoints: [Google Drive for Trained Models](https://drive.google.com/drive/folders/1-Mx2VeBnB8YKGrDCaZSNkbc_7bj6y5Gj?usp=sharing)
 - Dataset: [Google Drive for Dataset](https://drive.google.com/file/d/1fH436rkOHVYIG2JPROrFTXXemnY7JPdB/view?usp=sharing)
 
@@ -12,7 +12,7 @@ GS-FUSE is a multimodal event-driven financial forecasting framework that learns
 
 Accurately forecasting the market impact of salient financial events requires deciding when event text is actually informative beyond historical price patterns. GS-FUSE addresses this with a Granger-supervised, causal-aware gated fusion module that opens toward event text only when it provides incremental predictive value, plus a multi-granularity alignment mechanism that aligns both event-level representations and fine-grained textual cues with future market trajectories.
 
-The paper is available on arXiv: [GS-FUSE: Granger-Supervised Gated Fusion and Multi-Granularity Alignment for Event-Driven Financial Forecasting](https://arxiv.org/abs/2605.28520).
+The paper is available on arXiv: [GS-FUSE: Granger-Supervised Gated Fusion and Multi-Granularity Alignment for Event-Driven Financial Forecasting](https://arxiv.org/abs/2605.28520). The proceedings version will appear in the **KDD 2026** conference.
 
 ## Model Architecture
 
