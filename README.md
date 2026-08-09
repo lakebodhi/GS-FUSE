@@ -7,7 +7,26 @@ GS-FUSE is a multimodal event-driven financial forecasting framework that learns
 - Proceedings paper (KDD 2026): [Proceedings paper](https://dl.acm.org/doi/10.1145/3770855.3817927)
 - Trained GS-FUSE model checkpoints: [Google Drive for Trained Models](https://drive.google.com/drive/folders/1-Mx2VeBnB8YKGrDCaZSNkbc_7bj6y5Gj?usp=sharing)
 - Dataset: [Google Drive for Dataset](https://drive.google.com/file/d/1fH436rkOHVYIG2JPROrFTXXemnY7JPdB/view?usp=sharing)
-
+- Citation:
+```bibtex
+@inproceedings{10.1145/3770855.3817927,
+author = {Zhang, Yang and Chun, En and Mao, Ziyun and Wu, Yulu and Wang, Jun},
+title = {{GS-Fuse}: Granger-Supervised Gated Fusion and Multi-Granularity Alignment for Event-Driven Financial Forecasting},
+year = {2026},
+isbn = {9798400722592},
+publisher = {Association for Computing Machinery},
+address = {New York, NY, USA},
+url = {https://doi.org/10.1145/3770855.3817927},
+doi = {10.1145/3770855.3817927},
+abstract = {Accurately forecasting the impact of salient financial events on markets is critical for investors and policymakers. However, existing multimodal time-series models typically fuse text and prices symmetrically, without an explicit way to decide when event text is truly predictive, and thus struggle to exploit the directional event-to-price structure and the heterogeneous roles of textual and price signals. In this work, we propose GS-Fuse, a multimodal event-based forecasting framework that employs (i) a Granger-supervised, causal-aware gated fusion module, which learns to open toward event text only when it provides incremental predictive value beyond historical prices, and (ii) a multi-granularity alignment mechanism that jointly aligns high-level event representations and fine-grained textual cues with future market trajectories. Built as a flexible, plug-and-play adapter on top of off-the-shelf large language models and time-series foundation models, GS-Fuse can be instantiated across diverse backbones and market settings. Extensive experiments on real-world financial datasets show that GS-Fuse consistently outperforms state-of-the-art time-series and multimodal baselines across multiple assets and forecasting horizons.},
+booktitle = {Proceedings of the 32nd ACM SIGKDD Conference on Knowledge Discovery and Data Mining V.2},
+pages = {6570–6581},
+numpages = {12},
+keywords = {financial forecasting, multimodal learning, time-series forecasting},
+location = {Republic of Korea},
+series = {KDD '26}
+}
+```
 ## Paper Overview
 
 Accurately forecasting the market impact of salient financial events requires deciding when event text is actually informative beyond historical price patterns. GS-FUSE addresses this with a Granger-supervised, causal-aware gated fusion module that opens toward event text only when it provides incremental predictive value, plus a multi-granularity alignment mechanism that aligns both event-level representations and fine-grained textual cues with future market trajectories.
